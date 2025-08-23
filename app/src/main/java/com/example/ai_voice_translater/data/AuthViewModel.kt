@@ -4,80 +4,68 @@ package com.example.ai_voice_translater.data
 import android.app.Application
 import android.content.Intent
 import android.content.IntentSender
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ai_voice_translater.R
 import com.google.android.gms.auth.api.identity.BeginSignInRequest
 import com.google.android.gms.auth.api.identity.Identity
-import com.google.firebase.Firebase
-//import com.example.voicetranslator.R
-//import com.example.voicetranslator.data.UserData
-//import com.google.android.gms.auth.api.identity.BeginSignInRequest
-//import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.tasks.Task
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.auth
-//import com.google.firebase.auth.ktx.auth
-//import com.google.firebase.ktx.Firebase
+import com.google.firebase.auth.UserProfileChangeRequest
+import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.CancellationException
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
-// Represents the authentication state for the UI
 sealed class AuthState {
     object Unauthenticated : AuthState()
     data class Authenticated(val userData: UserData) : AuthState()
     data class Error(val message: String) : AuthState()
 }
 
-/**
- * This ViewModel now handles BOTH state management and direct interaction
- * with the Google Sign-In services.
- */
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val auth = Firebase.auth
+    // --- PRIMARY FIREBASE APP (for Auth, Firestore) ---
+    private val primaryAuth: FirebaseAuth = FirebaseAuth.getInstance()
 
-    // --- Client-side Logic (Previously GoogleAuthUiClient) ---
     private val oneTapClient = Identity.getSignInClient(application)
 
-    // --- State Management Logic ---
     private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
     val authState = _authState.asStateFlow()
 
     init {
-        checkCurrentUser()
+        primaryAuth.addAuthStateListener { checkCurrentUser() }
     }
 
-    /**
-     * Starts the Google Sign-In process and returns an IntentSender for the UI to launch.
-     */
+    // ... (getSignInIntent, processSignInResult, signOut methods remain the same)
     suspend fun getSignInIntent(): IntentSender? {
         return try {
-            oneTapClient.beginSignIn(
-                BeginSignInRequest.builder()
-                    .setGoogleIdTokenRequestOptions(
-                        BeginSignInRequest.GoogleIdTokenRequestOptions.builder()
-                            .setSupported(true)
-                            .setServerClientId(getApplication<Application>().getString(R.string.default_web_client_id))
-                            .setFilterByAuthorizedAccounts(false)
-                            .build()
-                    )
-                    .setAutoSelectEnabled(true)
-                    .build()
-            ).await().pendingIntent.intentSender
+            val request = BeginSignInRequest.builder()
+                .setGoogleIdTokenRequestOptions(
+                    BeginSignInRequest.GoogleIdTokenRequestOptions.builder()
+                        .setSupported(true)
+                        .setServerClientId(getApplication<Application>().getString(R.string.default_web_client_id))
+                        .setFilterByAuthorizedAccounts(false)
+                        .build()
+                )
+                .setAutoSelectEnabled(true)
+                .build()
+            oneTapClient.beginSignIn(request).await().pendingIntent.intentSender
         } catch (e: Exception) {
-            e.printStackTrace()
             if (e is CancellationException) throw e
             _authState.value = AuthState.Error(e.message ?: "Could not start sign-in flow")
             null
         }
     }
 
-    /**
-     * Processes the result from the Sign-In intent and authenticates with Firebase.
-     */
     fun processSignInResult(intent: Intent) {
         viewModelScope.launch {
             try {
@@ -85,8 +73,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val googleIdToken = credentialResponse.googleIdToken
                 if (googleIdToken != null) {
                     val firebaseCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-                    auth.signInWithCredential(firebaseCredential).await()
-                    checkCurrentUser() // Update state to Authenticated
+                    primaryAuth.signInWithCredential(firebaseCredential).await()
                 } else {
                     _authState.value = AuthState.Error("Google Sign-In failed.")
                 }
@@ -96,38 +83,59 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Signs the user out from both Firebase and Google One-Tap.
-     */
     fun signOut() {
         viewModelScope.launch {
             try {
                 oneTapClient.signOut().await()
-                auth.signOut()
-                _authState.value = AuthState.Unauthenticated
+                primaryAuth.signOut()
             } catch (e: Exception) {
-                e.printStackTrace()
                 if (e is CancellationException) throw e
-                // Even if Google sign-out fails, update our app's state
-                _authState.value = AuthState.Unauthenticated
+                primaryAuth.signOut()
             }
         }
     }
 
-    /**
-     * Checks if a user is already logged in when the ViewModel is created.
-     */
+
+    // Updated function to handle both name and photo updates
+    suspend fun updateUserProfile(newName: String) {
+        val user = primaryAuth.currentUser ?: return
+        try {
+
+            val profileUpdates = UserProfileChangeRequest.Builder()
+                .setDisplayName(newName)
+                .build()
+
+            user.updateProfile(profileUpdates).await()
+        } catch (e: Exception) {
+            _authState.value = AuthState.Error(e.message ?: "Failed to update profile")
+        }
+    }
+
     private fun checkCurrentUser() {
-        auth.currentUser?.let { firebaseUser ->
+        primaryAuth.currentUser?.let { firebaseUser ->
             _authState.value = AuthState.Authenticated(
                 userData = UserData(
                     userId = firebaseUser.uid,
                     username = firebaseUser.displayName,
-                    profilePictureUrl = firebaseUser.photoUrl?.toString()
+                    profilePictureUrl = firebaseUser.photoUrl?.toString(),
+                    email = firebaseUser.email.toString()
                 )
             )
         } ?: run {
             _authState.value = AuthState.Unauthenticated
+        }
+    }
+
+    private suspend fun <T> Task<T>.await(): T {
+        return suspendCancellableCoroutine { cont ->
+            addOnCompleteListener {
+                if (cont.isCancelled) return@addOnCompleteListener
+                if (it.isSuccessful) {
+                    cont.resume(it.result)
+                } else {
+                    cont.resumeWithException(it.exception ?: Exception("Unknown Task error"))
+                }
+            }
         }
     }
 }

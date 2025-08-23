@@ -70,7 +70,7 @@ fun AppNavigation() {
         }
         composable(Screen.Main.route) {
             // MainScreen will also use this ViewModel for sign-out
-            MainScreen()
+            MainScreen(navController)
         }
     }
 }

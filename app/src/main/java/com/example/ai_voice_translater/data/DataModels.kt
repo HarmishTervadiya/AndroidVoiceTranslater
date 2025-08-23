@@ -1,6 +1,7 @@
 // DataModels.kt
 package com.example.ai_voice_translater.data
 
+import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import com.google.gson.annotations.SerializedName
 import java.util.Date
@@ -40,6 +41,7 @@ data class TextTranslationResponse(
  * It now clearly separates the original transcription from the final translation.
  */
 data class Translation(
+    @DocumentId val id: String = "",
     val userId: String = "",
     val originalText: String = "", // e.g., "Aap kaise hain?"
     val translatedText: String = "", // e.g., "How are you?"
@@ -53,5 +55,6 @@ data class Translation(
 data class UserData(
     val userId: String,
     val username: String?,
-    val profilePictureUrl: String?
+    val profilePictureUrl: String?,
+    val email: String
 )

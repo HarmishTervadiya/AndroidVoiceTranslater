@@ -1,52 +1,45 @@
+// EditProfileScreen.kt
 package com.example.ai_voice_translater.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-
-
-@Composable
-fun EditProfile(modifier: Modifier = Modifier,navController: NavController) {
-    EditProfileScreen(navController = navController)
-}
+import com.example.ai_voice_translater.data.AuthState
+import com.example.ai_voice_translater.data.AuthViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun EditProfileScreen(
-    navController: NavController, // to go back
-    initialName: String = "",
-    initialEmail: String = ""
+    navController: NavController,
+    authViewModel: AuthViewModel = viewModel()
 ) {
-    var name by rememberSaveable { mutableStateOf(initialName) }
-    var email by rememberSaveable { mutableStateOf(initialEmail) }
+    val authState by authViewModel.authState.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
+
+    // State for the text fields, initialized with user data
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+
+    // Update local state when authState changes
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Authenticated) {
+            val userData = (authState as AuthState.Authenticated).userData
+            name = userData.username ?: ""
+            // Email is not part of UserData, so we'll keep it as a placeholder
+            email = "Email cannot be changed"
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -64,9 +57,7 @@ fun EditProfileScreen(
             IconButton(onClick = { navController.popBackStack() }) {
                 Icon(Icons.Default.Close, contentDescription = "Close")
             }
-
             Spacer(modifier = Modifier.width(8.dp))
-
             Text(
                 text = "Edit profile",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
@@ -91,17 +82,17 @@ fun EditProfileScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Email field
+        // Email field (disabled)
         Text("Email", style = MaterialTheme.typography.bodyMedium)
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = { /* No-op */ },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp),
+            enabled = false, // Disable the email field
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = Color(0xFFF1F3F5),
-                focusedContainerColor = Color(0xFFF1F3F5)
+                disabledContainerColor = Color(0xFFF1F3F5)
             )
         )
 
@@ -110,8 +101,10 @@ fun EditProfileScreen(
         // Save Button
         Button(
             onClick = {
-                // Save logic here
-                navController.popBackStack()
+                coroutineScope.launch {
+                    authViewModel.updateUserProfile(name)
+                    navController.popBackStack()
+                }
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -120,13 +113,5 @@ fun EditProfileScreen(
         ) {
             Text("Save", color = Color.White)
         }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun ProfileScreenPreview() {
-    Surface(modifier = Modifier.fillMaxSize()){
-
     }
 }

@@ -6,6 +6,9 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.firestore
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -155,21 +158,41 @@ class TranslationRepository {
         }
     }
 
-    suspend fun getTranslationHistory(): List<Translation> {
-        val userId = auth.currentUser?.uid ?: return emptyList()
-        return try {
-            val snapshot = firestore
-                .collection("translations")
-                .whereEqualTo("userId", userId)
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-                .get()
+    fun getTranslationHistory(): Flow<List<Translation>> = callbackFlow {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        Log.d("UserId", userId)
+        val listener = firestore
+            .collection("translations")
+            .whereEqualTo("userId", userId)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val translations = snapshot.toObjects(Translation::class.java)
+                    trySend(translations)
+                }
+            }
+
+        awaitClose { listener.remove() }
+    }
+
+    suspend fun deleteTranslation(translationId: String) {
+        try {
+            firestore
+                .collection("translations").document(translationId)
+                .delete()
                 .await()
-            val translations = snapshot.toObjects(Translation::class.java)
-            Log.d("TranslationRepository", "Retrieved ${translations.size} translations")
-            translations
         } catch (e: Exception) {
-            Log.e("TranslationRepository", "Error getting translation history", e)
-            emptyList()
+            Log.e("TranslationRepo", "Error deleting translation", e)
         }
     }
 }

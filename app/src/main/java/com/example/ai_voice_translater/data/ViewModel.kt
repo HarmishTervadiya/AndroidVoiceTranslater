@@ -1,14 +1,17 @@
 // MainViewModel.kt
-package com.example.ai_voice_translater.data
+package com.example.voicetranslator.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ai_voice_translater.audio.AudioRecorder
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
+import com.example.ai_voice_translater.data.Translation
+import com.example.ai_voice_translater.data.TranslationRepository
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 sealed class UiState {
@@ -23,7 +26,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = TranslationRepository()
     private val audioRecorder = AudioRecorder(application)
-    private val auth = Firebase.auth
+    private val auth = FirebaseAuth.getInstance()
 
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
     val uiState = _uiState.asStateFlow()
@@ -31,15 +34,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _translationHistory = MutableStateFlow<List<Translation>>(emptyList())
     val translationHistory = _translationHistory.asStateFlow()
 
-    private val _selectedLanguage = MutableStateFlow("hi-IN") // Default to Hindi
+    private val _selectedLanguage = MutableStateFlow("hi-IN")
     val selectedLanguage = _selectedLanguage.asStateFlow()
 
     private val apiKey = "sk_ugfock7d_FAuJV0IgUrPAeSyfAir4jTaW"
 
     init {
-        if (auth.currentUser != null) {
-            loadHistory()
-        }
+        // Start listening for history updates as soon as the ViewModel is created
+        listenForHistoryUpdates()
+    }
+
+    private fun listenForHistoryUpdates() {
+        repository.getTranslationHistory()
+            .onEach { translations ->
+                _translationHistory.value = translations
+            }
+            .launchIn(viewModelScope)
     }
 
     fun setLanguage(languageCode: String) {
@@ -72,8 +82,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 result.fold(
                     onSuccess = { (originalText, translatedText) ->
                         _uiState.value = UiState.Success(translatedText)
+                        // Save the translation. The listener will automatically update the history.
                         repository.saveTranslation(originalText, translatedText)
-                        loadHistory()
                     },
                     onFailure = { error ->
                         _uiState.value = UiState.Error(error.message ?: "Unknown error")
@@ -85,14 +95,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun loadHistory() {
-        if (auth.currentUser == null) return
-        viewModelScope.launch {
-            _translationHistory.value = repository.getTranslationHistory()
-        }
-    }
-
     fun resetState() {
         _uiState.value = UiState.Idle
+    }
+
+    fun deleteTranslation(translationId: String) {
+        viewModelScope.launch {
+            repository.deleteTranslation(translationId)
+        }
     }
 }
