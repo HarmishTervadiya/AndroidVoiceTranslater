@@ -35,6 +35,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -57,8 +58,22 @@ fun AppNavigation() {
     // This effect will react to changes in authState and navigate automatically
     LaunchedEffect(key1 = authState) {
         if (authState is AuthState.Authenticated) {
+            // If logged in, go to the main app flow
             navController.navigate(Screen.Main.route) {
                 popUpTo(Screen.Login.route) { inclusive = true }
+            }
+        } else if (authState is AuthState.Unauthenticated) {
+            // THIS IS THE CODE THAT REDIRECTS ON LOGOUT
+            navController.navigate(Screen.Login.route) {
+                // ================== THE FIX ==================
+                // This is a more robust way to clear the back stack.
+                // It pops all destinations until the very start of the graph.
+                // =============================================
+                popUpTo(navController.graph.findStartDestination().id) {
+                    inclusive = true
+                }
+                // Ensure we don't create multiple copies of the login screen
+                launchSingleTop = true
             }
         }
     }

@@ -33,7 +33,6 @@ sealed class AuthState {
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
-    // --- PRIMARY FIREBASE APP (for Auth, Firestore) ---
     private val primaryAuth: FirebaseAuth = FirebaseAuth.getInstance()
 
     private val oneTapClient = Identity.getSignInClient(application)
@@ -88,6 +87,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 oneTapClient.signOut().await()
                 primaryAuth.signOut()
+                _authState.value = AuthState.Unauthenticated;
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 primaryAuth.signOut()
