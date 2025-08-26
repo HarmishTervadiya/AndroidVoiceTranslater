@@ -37,7 +37,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedLanguage = MutableStateFlow("hi-IN")
     val selectedLanguage = _selectedLanguage.asStateFlow()
 
-    private val apiKey = "sk_ugfock7d_FAuJV0IgUrPAeSyfAir4jTaW"
+    private val apiKey = ""
 
     init {
         // Start listening for history updates as soon as the ViewModel is created
